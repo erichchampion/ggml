@@ -869,6 +869,12 @@ static void * ggml_backend_metal_get_proc_address(ggml_backend_reg_t reg, const 
     if (strcmp(name, "ggml_backend_get_features") == 0) {
         return (void *)ggml_backend_metal_get_features;
     }
+    // cadenza: let an embedder split each graph across more command buffers.
+    // iOS's GPU watchdog resets the GPU when one buffer runs too long
+    // (cadenza-audio #403); with n_cb = 1 most of a graph is one buffer.
+    if (strcmp(name, "ggml_backend_metal_set_n_cb") == 0) {
+        return (void *)ggml_backend_metal_set_n_cb;
+    }
 
     return NULL;
 
