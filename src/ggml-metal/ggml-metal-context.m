@@ -17,9 +17,6 @@
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
 // max number of MTLCommandBuffer used to submit a graph for processing
-// cadenza: up to 128, so a graph can be split finely enough that no command
-// buffer outlasts iOS 27's GPU watchdog on a phone GPU (erichchampion/cadenza-audio#474).
-#define GGML_METAL_MAX_COMMAND_BUFFERS 128
 
 struct ggml_metal_command_buffer {
     id<MTLCommandBuffer> obj;
@@ -175,7 +172,8 @@ ggml_metal_t ggml_metal_init(ggml_metal_device_t dev) {
 
     res->gf = nil;
     res->encode_async = nil;
-    for (int i = 0; i < GGML_METAL_MAX_COMMAND_BUFFERS; ++i) {
+    // cadenza: <=, as in ggml_metal_free -- the array holds MAX + 1 (#474)
+    for (int i = 0; i <= GGML_METAL_MAX_COMMAND_BUFFERS; ++i) {
         res->cmd_bufs[i].obj = nil;
     }
 
@@ -450,7 +448,7 @@ enum ggml_status ggml_metal_graph_compute(ggml_metal_t ctx, struct ggml_cgraph *
 
     // cadenza: past upstream's range of n_cb, keep the main thread's share no
     // larger than another buffer's, or it would be the longest one (#474).
-    if (ctx->n_cb > 8) {
+    if (ctx->n_cb > GGML_METAL_UPSTREAM_MAX_COMMAND_BUFFERS) {
         n_main = MIN(n_main, MAX(1, gf->n_nodes/(ctx->n_cb + 1)));
     }
 

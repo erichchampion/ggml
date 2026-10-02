@@ -2,6 +2,15 @@
 
 #include "ggml.h"
 
+// cadenza: a graph can be split into up to 128 command buffers (plus the main
+// thread's), finely enough that no buffer outlasts iOS 27's GPU watchdog on a
+// phone GPU (erichchampion/cadenza-audio#474). Upstream's ceiling was 8; past
+// it, the main thread's share is capped too.
+#define GGML_METAL_MAX_COMMAND_BUFFERS 128
+#define GGML_METAL_UPSTREAM_MAX_COMMAND_BUFFERS 8
+// The device queue's capacity: eight graphs at the finest split in flight.
+#define GGML_METAL_QUEUE_MAX_COMMAND_BUFFERS (8 * (GGML_METAL_MAX_COMMAND_BUFFERS + 1))
+
 #ifdef __cplusplus
 extern "C" {
 #endif
