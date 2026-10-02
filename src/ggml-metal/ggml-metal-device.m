@@ -636,7 +636,10 @@ ggml_metal_device_t ggml_metal_device_init(int device) {
         dev->mtl_device = MTLCreateSystemDefaultDevice();
 
         if (dev->mtl_device) {
-            dev->mtl_queue = [dev->mtl_device newCommandQueue];
+            // cadenza: room for a finely split graph's buffers (#474). A queue
+            // holds 64 by default, and making the 65th blocks before any is
+            // committed, so a graph split into more than 64 would deadlock.
+            dev->mtl_queue = [dev->mtl_device newCommandQueueWithMaxCommandBufferCount:1024];
             if (dev->mtl_queue == nil) {
                 GGML_LOG_ERROR("%s: error: failed to create command queue\n", __func__);
             }
