@@ -191,7 +191,9 @@ ggml_metal_t ggml_metal_init(ggml_metal_device_t dev) {
 void ggml_metal_free(ggml_metal_t ctx) {
     GGML_LOG_INFO("%s: deallocating\n", __func__);
 
-    for (int i = 0; i < GGML_METAL_MAX_COMMAND_BUFFERS; ++i) {
+    // cadenza: <= -- the array holds MAX + 1, and the main thread's buffer is
+    // cmd_bufs[n_cb], the last one when n_cb is the maximum (#474).
+    for (int i = 0; i <= GGML_METAL_MAX_COMMAND_BUFFERS; ++i) {
         if (ctx->cmd_bufs[i].obj) {
             [ctx->cmd_bufs[i].obj release];
         }
@@ -673,7 +675,8 @@ void ggml_metal_set_n_cb(ggml_metal_t ctx, int n_cb) {
         ctx->n_cb = MIN(n_cb, GGML_METAL_MAX_COMMAND_BUFFERS);
 
         if (ctx->n_cb > 2) {
-            GGML_LOG_WARN("%s: n_cb = %d, using n_cb > 2 is not recommended and can degrade the performance in some cases\n", __func__, n_cb);
+            // cadenza: the n_cb in effect, after the clamp, not the one asked for (#474)
+            GGML_LOG_WARN("%s: n_cb = %d, using n_cb > 2 is not recommended and can degrade the performance in some cases\n", __func__, ctx->n_cb);
         }
     }
 
