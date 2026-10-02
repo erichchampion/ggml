@@ -16,8 +16,6 @@
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
-// max number of MTLCommandBuffer used to submit a graph for processing
-
 struct ggml_metal_command_buffer {
     id<MTLCommandBuffer> obj;
 };
@@ -669,8 +667,11 @@ ggml_metal_event_t ggml_metal_get_ev_cpy(ggml_metal_t ctx) {
 }
 
 void ggml_metal_set_n_cb(ggml_metal_t ctx, int n_cb) {
+    // cadenza: clamp before comparing, so a request past the ceiling matches
+    // the clamped value already set and is not re-applied and re-logged (#474)
+    n_cb = MIN(n_cb, GGML_METAL_MAX_COMMAND_BUFFERS);
     if (ctx->n_cb != n_cb) {
-        ctx->n_cb = MIN(n_cb, GGML_METAL_MAX_COMMAND_BUFFERS);
+        ctx->n_cb = n_cb;
 
         if (ctx->n_cb > 2) {
             // cadenza: the n_cb in effect, after the clamp, not the one asked for (#474)
