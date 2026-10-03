@@ -668,8 +668,9 @@ ggml_metal_event_t ggml_metal_get_ev_cpy(ggml_metal_t ctx) {
 
 void ggml_metal_set_n_cb(ggml_metal_t ctx, int n_cb) {
     // cadenza: clamp before comparing, so a request past the ceiling matches
-    // the clamped value already set and is not re-applied and re-logged (#474)
-    n_cb = MIN(n_cb, GGML_METAL_MAX_COMMAND_BUFFERS);
+    // the clamped value already set and is not re-applied and re-logged; and
+    // never below 1, which graph_compute divides by (#474)
+    n_cb = MAX(1, MIN(n_cb, GGML_METAL_MAX_COMMAND_BUFFERS));
     if (ctx->n_cb != n_cb) {
         ctx->n_cb = n_cb;
 
