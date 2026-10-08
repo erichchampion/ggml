@@ -575,6 +575,12 @@ static void ggml_backend_metal_set_n_cb(ggml_backend_t backend, int n_cb) {
     ggml_metal_set_n_cb(ctx, n_cb);
 }
 
+static bool ggml_backend_metal_has_error(ggml_backend_t backend) {
+    GGML_ASSERT(ggml_backend_is_metal(backend));
+
+    return ggml_metal_has_error((ggml_metal_t)backend->context);
+}
+
 static ggml_backend_i ggml_backend_metal_i = {
     /* .get_name                = */ ggml_backend_metal_name,
     /* .free                    = */ ggml_backend_metal_free,
@@ -887,6 +893,12 @@ static void * ggml_backend_metal_get_proc_address(ggml_backend_reg_t reg, const 
     // (cadenza-audio #403); with n_cb = 1 most of a graph is one buffer.
     if (strcmp(name, "ggml_backend_metal_set_n_cb") == 0) {
         return (void *)ggml_backend_metal_set_n_cb;
+    }
+    // cadenza: whether a command buffer failure left the backend in its error
+    // state, read directly instead of by computing an empty graph to see if it
+    // is refused (cadenza-audio #405). bool (*)(ggml_backend_t).
+    if (strcmp(name, "ggml_backend_metal_has_error") == 0) {
+        return (void *)ggml_backend_metal_has_error;
     }
 
     return NULL;
