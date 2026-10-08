@@ -738,6 +738,12 @@ static ggml_backend_buffer_t ggml_backend_metal_device_buffer_mapped(ggml_backen
 
     ggml_metal_buffer_t res = ggml_metal_buffer_map(ctx_dev, ptr, size, max_tensor_size);
 
+    // cadenza: a map that fails (unaligned or oversized region, residency-set
+    // init) is reported, not wrapped (#102, as alloc_buffer).
+    if (res == NULL) {
+        return NULL;
+    }
+
     const ggml_metal_device_props * props_dev = ggml_metal_device_get_props(ctx_dev);
 
     return ggml_backend_buffer_init(ggml_backend_metal_buffer_type_mapped(props_dev->device), ggml_backend_metal_buffer_shared_i, res, size);
