@@ -200,6 +200,13 @@ static ggml_backend_buffer_t ggml_backend_metal_buffer_type_alloc_buffer(ggml_ba
     ggml_metal_device_t ctx_dev = (ggml_metal_device_t)buft->device->context;
     ggml_metal_buffer_t res = ggml_metal_buffer_init(ctx_dev, size, shared);
 
+    // cadenza: a buffer that can't be allocated is reported (NULL, which
+    // ggml-alloc already handles), not dereferenced. On iOS an allocation past
+    // the process's budget is routine, not pathological (cadenza-audio #102).
+    if (res == NULL) {
+        return NULL;
+    }
+
     ggml_backend_buffer_i buf_i = ggml_metal_buffer_is_shared(res)
         ? ggml_backend_metal_buffer_shared_i
         : ggml_backend_metal_buffer_private_i;
