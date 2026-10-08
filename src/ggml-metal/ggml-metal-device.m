@@ -1483,19 +1483,11 @@ ggml_metal_buffer_t ggml_metal_buffer_init(ggml_metal_device_t dev, size_t size,
 
     if (size_aligned > 0 && (res->all_data == NULL || res->buffers[0].metal == nil)) {
         GGML_LOG_ERROR("%s: error: failed to allocate buffer, size = %8.2f MiB\n", __func__, size_aligned / 1024.0 / 1024.0);
-        // cadenza: free what did succeed -- the caller may retry, and the
-        // host allocation is real memory (#102). The MTLBuffer is created
-        // only when all_data != NULL, so a release here is a no-op on nil
-        // at worst.
-        [res->buffers[0].metal release];
-        if (res->is_shared && res->owned) {
-#if TARGET_OS_OSX
-            vm_deallocate((vm_map_t)mach_task_self(), (vm_address_t)res->all_data, res->all_size);
-#else
-            free(res->all_data);
-#endif
-        }
-        free(res);
+        // cadenza: buffer_free is nil-safe on this partial state -- the rset
+        // was never added to the device, and a failed host allocation leaves
+        // all_data NULL -- and releases what did succeed (#102): the caller
+        // may retry.
+        ggml_metal_buffer_free(res);
         return NULL;
     }
 
@@ -1503,20 +1495,10 @@ ggml_metal_buffer_t ggml_metal_buffer_init(ggml_metal_device_t dev, size_t size,
 
     if (!ggml_metal_buffer_rset_init(res)) {
         GGML_LOG_ERROR("%s: error: failed to initialize residency set\n", __func__);
-        // cadenza: the buffer itself was made -- a live MTLBuffer and, for a
-        // shared one, real host memory (#102). Nothing was added to the
-        // device's set yet (that follows this call), and rset_free is
-        // nil-safe on the partial init.
-        [res->buffers[0].metal release];
-        ggml_metal_buffer_rset_free(res);
-        if (res->is_shared && res->owned) {
-#if TARGET_OS_OSX
-            vm_deallocate((vm_map_t)mach_task_self(), (vm_address_t)res->all_data, res->all_size);
-#else
-            free(res->all_data);
-#endif
-        }
-        free(res);
+        // cadenza: buffer_free is nil-safe here -- the rset was never added
+        // to the device -- and releases the live MTLBuffer and, for a shared
+        // buffer, the host memory it had already made (#102).
+        ggml_metal_buffer_free(res);
         return NULL;
     }
 
@@ -1567,7 +1549,7 @@ ggml_metal_buffer_t ggml_metal_buffer_map(ggml_metal_device_t dev, void * ptr, s
 
             if (res->buffers[res->n_buffers].metal == nil) {
                 GGML_LOG_ERROR("%s: error: failed to allocate buffer, size = %8.2f MiB\n", __func__, size_aligned / 1024.0 / 1024.0);
-                free(res);
+                ggml_metal_buffer_free(res);
                 return NULL;
             }
         }
@@ -1594,7 +1576,9 @@ ggml_metal_buffer_t ggml_metal_buffer_map(ggml_metal_device_t dev, void * ptr, s
 
                 if (res->buffers[res->n_buffers].metal == nil) {
                     GGML_LOG_ERROR("%s: error: failed to allocate buffer, size = %8.2f MiB\n", __func__, size_step_aligned / 1024.0 / 1024.0);
-                    free(res);
+                    // cadenza: buffer_free releases the views made so far,
+                    // which pin the mapped region (#102).
+                    ggml_metal_buffer_free(res);
                     return NULL;
                 }
             }
@@ -1613,13 +1597,10 @@ ggml_metal_buffer_t ggml_metal_buffer_map(ggml_metal_device_t dev, void * ptr, s
 
     if (!ggml_metal_buffer_rset_init(res)) {
         GGML_LOG_ERROR("%s: error: failed to initialize residency set\n", __func__);
-        // cadenza: the wrapped host memory is the caller's (owned == false) --
-        // only the MTLBuffers made over it are ours to release (#102).
-        for (int i = 0; i < res->n_buffers; i++) {
-            [res->buffers[i].metal release];
-        }
-        ggml_metal_buffer_rset_free(res);
-        free(res);
+        // cadenza: the wrapped host memory is the caller's (owned == false);
+        // buffer_free releases the MTLBuffers made over it and is nil-safe
+        // on the partial init (#102).
+        ggml_metal_buffer_free(res);
         return NULL;
     }
 
@@ -1637,7 +1618,7 @@ void ggml_metal_buffer_free(ggml_metal_buffer_t buf) {
 
     ggml_metal_buffer_rset_free(buf);
 
-    if (buf->is_shared && buf->owned) {
+    if (buf->is_shared && buf->owned && buf->all_data != NULL) {
 #if TARGET_OS_OSX
         vm_deallocate((vm_map_t)mach_task_self(), (vm_address_t)buf->all_data, buf->all_size);
 #else

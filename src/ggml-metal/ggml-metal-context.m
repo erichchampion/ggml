@@ -9,6 +9,8 @@
 
 #import <Foundation/Foundation.h>
 
+#import <stdatomic.h>
+
 #import <Metal/Metal.h>
 
 #undef MIN
@@ -75,7 +77,9 @@ struct ggml_metal {
 
     // error state - set when a command buffer fails during synchronize
     // once set, graph_compute will return GGML_STATUS_FAILED until the backend is recreated
-    bool has_error;
+    // cadenza: _Atomic -- an embedder reads it from another thread than the
+    // compute (ggml_backend_metal_has_error, #405).
+    _Atomic bool has_error;
 };
 
 ggml_metal_t ggml_metal_init(ggml_metal_device_t dev) {
@@ -166,7 +170,7 @@ ggml_metal_t ggml_metal_init(ggml_metal_device_t dev) {
         }
     }
 
-    res->has_error = false;
+    atomic_store_explicit(&res->has_error, false, memory_order_relaxed);
 
     res->gf = nil;
     res->encode_async = nil;
@@ -259,7 +263,7 @@ void ggml_metal_synchronize(ggml_metal_t ctx) {
                 if (status == MTLCommandBufferStatusError) {
                     GGML_LOG_ERROR("error: %s\n", [[cmd_buf error].localizedDescription UTF8String]);
                 }
-                ctx->has_error = true;
+                atomic_store_explicit(&ctx->has_error, true, memory_order_relaxed);
                 return;
             }
         }
@@ -283,7 +287,7 @@ void ggml_metal_synchronize(ggml_metal_t ctx) {
                 }
                 [ctx->cmd_bufs_ext removeAllObjects];
 
-                ctx->has_error = true;
+                atomic_store_explicit(&ctx->has_error, true, memory_order_relaxed);
                 return;
             }
 
@@ -436,11 +440,11 @@ bool ggml_metal_cpy_tensor_async(ggml_metal_t ctx_src, ggml_metal_t ctx_dst, con
 }
 
 bool ggml_metal_has_error(ggml_metal_t ctx) {
-    return ctx->has_error;
+    return atomic_load_explicit(&ctx->has_error, memory_order_relaxed);
 }
 
 enum ggml_status ggml_metal_graph_compute(ggml_metal_t ctx, struct ggml_cgraph * gf) {
-    if (ctx->has_error) {
+    if (atomic_load_explicit(&ctx->has_error, memory_order_relaxed)) {
         GGML_LOG_ERROR("%s: backend is in error state from a previous command buffer failure - recreate the backend to recover\n", __func__);
         return GGML_STATUS_FAILED;
     }

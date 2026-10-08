@@ -286,8 +286,8 @@ static ggml_backend_buffer_type_t ggml_backend_metal_buffer_type_shared(int devi
     static std::mutex mutex;
     std::lock_guard<std::mutex> lock(mutex);
 
-    // cadenza: leaked on purpose, as the device is (ggml-metal-device.cpp): a
-    // buffer still in use at exit must not outlive its type (cadenza-audio #402).
+    // cadenza: leaked on purpose, as the device is (#402) -- see the note
+    // on the shared type above.
     static auto & bufts = *new std::vector<ggml_backend_buffer_type>();
     static auto & ctxs = *new std::vector<ggml_backend_metal_buffer_type_ptr>();
 
@@ -364,8 +364,8 @@ static ggml_backend_buffer_type_t ggml_backend_metal_buffer_type_private(int dev
     static std::mutex mutex;
     std::lock_guard<std::mutex> lock(mutex);
 
-    // cadenza: leaked on purpose, as the device is (ggml-metal-device.cpp): a
-    // buffer still in use at exit must not outlive its type (cadenza-audio #402).
+    // cadenza: leaked on purpose, as the device is (#402) -- see the note
+    // on the shared type above.
     static auto & bufts = *new std::vector<ggml_backend_buffer_type>();
     static auto & ctxs = *new std::vector<ggml_backend_metal_buffer_type_ptr>();
 
