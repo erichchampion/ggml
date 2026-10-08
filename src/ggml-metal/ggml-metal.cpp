@@ -286,8 +286,10 @@ static ggml_backend_buffer_type_t ggml_backend_metal_buffer_type_shared(int devi
     static std::mutex mutex;
     std::lock_guard<std::mutex> lock(mutex);
 
-    static std::vector<ggml_backend_buffer_type> bufts;
-    static std::vector<ggml_backend_metal_buffer_type_ptr> ctxs;
+    // cadenza: leaked on purpose, as the device is (ggml-metal-device.cpp): a
+    // buffer still in use at exit must not outlive its type (cadenza-audio #402).
+    static auto & bufts = *new std::vector<ggml_backend_buffer_type>();
+    static auto & ctxs = *new std::vector<ggml_backend_metal_buffer_type_ptr>();
 
     static bool initialized = false;
     if (!initialized) {
@@ -362,8 +364,10 @@ static ggml_backend_buffer_type_t ggml_backend_metal_buffer_type_private(int dev
     static std::mutex mutex;
     std::lock_guard<std::mutex> lock(mutex);
 
-    static std::vector<ggml_backend_buffer_type> bufts;
-    static std::vector<ggml_backend_metal_buffer_type_ptr> ctxs;
+    // cadenza: leaked on purpose, as the device is (ggml-metal-device.cpp): a
+    // buffer still in use at exit must not outlive its type (cadenza-audio #402).
+    static auto & bufts = *new std::vector<ggml_backend_buffer_type>();
+    static auto & ctxs = *new std::vector<ggml_backend_metal_buffer_type_ptr>();
 
     static bool initialized = false;
     if (!initialized) {
@@ -438,8 +442,10 @@ static ggml_backend_buffer_type_t ggml_backend_metal_buffer_type_mapped(int devi
     static std::mutex mutex;
     std::lock_guard<std::mutex> lock(mutex);
 
-    static std::vector<ggml_backend_buffer_type> bufts;
-    static std::vector<ggml_backend_metal_buffer_type_ptr> ctxs;
+    // cadenza: leaked on purpose, as the device is (ggml-metal-device.cpp): a
+    // buffer still in use at exit must not outlive its type (cadenza-audio #402).
+    static auto & bufts = *new std::vector<ggml_backend_buffer_type>();
+    static auto & ctxs = *new std::vector<ggml_backend_metal_buffer_type_ptr>();
 
     static bool initialized = false;
     if (!initialized) {

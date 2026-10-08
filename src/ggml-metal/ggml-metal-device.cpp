@@ -18,7 +18,11 @@ struct ggml_metal_device_deleter {
 typedef std::unique_ptr<ggml_metal_device, ggml_metal_device_deleter> ggml_metal_device_ptr;
 
 ggml_metal_device_t ggml_metal_device_get(int device) {
-    static std::vector<ggml_metal_device_ptr> devs;
+    // cadenza: leaked on purpose. As a static it was destroyed at exit, and
+    // the device's destructor asserts (SIGABRT) while any buffer is still in
+    // its residency sets -- as a host's long-lived models' always are. The
+    // process ending frees it anyway (erichchampion/cadenza-audio #402).
+    static auto & devs = *new std::vector<ggml_metal_device_ptr>();
 
     devs.emplace_back(ggml_metal_device_init(device));
 
