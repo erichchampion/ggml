@@ -247,6 +247,26 @@ void ggml_metal_synchronize(ggml_metal_t ctx) {
         ctx->cmd_buf_last = nil;
     }
 
+    // cadenza: wait for every committed command buffer, not only the last one
+    // queued. Once one fails -- iOS refusing GPU work from an app in the
+    // background (erichchampion/cadenza-audio#814) -- they need not finish in
+    // order: the last can be done while an earlier one is still scheduled, and
+    // the buffers it holds unretained would be freed under it by a caller that
+    // tears down on the error. A buffer never committed (the abort-callback
+    // path) is not waited on: it would never complete.
+    for (int cb_idx = 0; cb_idx <= ctx->n_cb; ++cb_idx) {
+        id<MTLCommandBuffer> cmd_buf = ctx->cmd_bufs[cb_idx].obj;
+        if (cmd_buf && [cmd_buf status] >= MTLCommandBufferStatusCommitted) {
+            [cmd_buf waitUntilCompleted];
+        }
+    }
+    for (size_t i = 0; i < ctx->cmd_bufs_ext.count; ++i) {
+        id<MTLCommandBuffer> cmd_buf = ctx->cmd_bufs_ext[i];
+        if ([cmd_buf status] >= MTLCommandBufferStatusCommitted) {
+            [cmd_buf waitUntilCompleted];
+        }
+    }
+
     // check status of all command buffers
     {
         const int n_cb = ctx->n_cb;
