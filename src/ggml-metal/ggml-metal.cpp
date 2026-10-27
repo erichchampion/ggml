@@ -588,6 +588,12 @@ static bool ggml_backend_metal_has_error(ggml_backend_t backend) {
     return ggml_metal_has_error((ggml_metal_t)backend->context);
 }
 
+static bool ggml_backend_metal_refused(ggml_backend_t backend) {
+    GGML_ASSERT(ggml_backend_is_metal(backend));
+
+    return ggml_metal_refused((ggml_metal_t)backend->context);
+}
+
 static ggml_backend_i ggml_backend_metal_i = {
     /* .get_name                = */ ggml_backend_metal_name,
     /* .free                    = */ ggml_backend_metal_free,
@@ -916,6 +922,12 @@ static void * ggml_backend_metal_get_proc_address(ggml_backend_reg_t reg, const 
     // is refused (cadenza-audio #405). bool (*)(ggml_backend_t).
     if (strcmp(name, "ggml_backend_metal_has_error") == 0) {
         return (void *)ggml_backend_metal_has_error;
+    }
+    // cadenza: whether that error state is the system's refusal of the GPU --
+    // iOS refusing an app in the background (MTLCommandBufferErrorNotPermitted)
+    // -- rather than a fault (cadenza-audio #817). bool (*)(ggml_backend_t).
+    if (strcmp(name, "ggml_backend_metal_refused") == 0) {
+        return (void *)ggml_backend_metal_refused;
     }
 
     return NULL;

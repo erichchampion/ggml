@@ -80,7 +80,29 @@ struct ggml_metal {
     // cadenza: _Atomic -- an embedder reads it from another thread than the
     // compute (ggml_backend_metal_has_error, #405).
     _Atomic bool has_error;
+    // cadenza: whether that failure was the system refusing the GPU -- iOS
+    // does, to an app in the background (MTLCommandBufferErrorNotPermitted) --
+    // rather than a fault, so an embedder can run the step again once the app
+    // is back instead of failing it (erichchampion/cadenza-audio#817).
+    _Atomic bool refused;
 };
+
+// cadenza: put ctx in its error state for command buffer `cmd_buf`, which did
+// not complete, noting whether the system refused it (#817). The NSError's
+// domain and code are logged with its text, so a device log says which.
+static void ggml_metal_set_error(ggml_metal_t ctx, id<MTLCommandBuffer> cmd_buf) {
+    NSError * error = [cmd_buf status] == MTLCommandBufferStatusError ? [cmd_buf error] : nil;
+    if (error) {
+        GGML_LOG_ERROR("error: %s (%s %ld)\n", [error.localizedDescription UTF8String],
+                       [error.domain UTF8String], (long) error.code);
+    }
+    const bool refused = error && [error.domain isEqualToString:MTLCommandBufferErrorDomain] &&
+                         error.code == MTLCommandBufferErrorNotPermitted;
+    if (!atomic_load_explicit(&ctx->has_error, memory_order_relaxed)) {
+        atomic_store_explicit(&ctx->refused, refused, memory_order_relaxed);
+    }
+    atomic_store_explicit(&ctx->has_error, true, memory_order_relaxed);
+}
 
 ggml_metal_t ggml_metal_init(ggml_metal_device_t dev) {
     GGML_LOG_INFO("%s: allocating\n", __func__);
@@ -171,6 +193,7 @@ ggml_metal_t ggml_metal_init(ggml_metal_device_t dev) {
     }
 
     atomic_store_explicit(&res->has_error, false, memory_order_relaxed);
+    atomic_store_explicit(&res->refused, false, memory_order_relaxed);
 
     res->gf = nil;
     res->encode_async = nil;
@@ -280,10 +303,7 @@ void ggml_metal_synchronize(ggml_metal_t ctx) {
             MTLCommandBufferStatus status = [cmd_buf status];
             if (status != MTLCommandBufferStatusCompleted) {
                 GGML_LOG_ERROR("%s: error: command buffer %d failed with status %d\n", __func__, cb_idx, (int) status);
-                if (status == MTLCommandBufferStatusError) {
-                    GGML_LOG_ERROR("error: %s\n", [[cmd_buf error].localizedDescription UTF8String]);
-                }
-                atomic_store_explicit(&ctx->has_error, true, memory_order_relaxed);
+                ggml_metal_set_error(ctx, cmd_buf);
                 return;
             }
         }
@@ -297,9 +317,7 @@ void ggml_metal_synchronize(ggml_metal_t ctx) {
             MTLCommandBufferStatus status = [cmd_buf status];
             if (status != MTLCommandBufferStatusCompleted) {
                 GGML_LOG_ERROR("%s: error: command buffer %d failed with status %d\n", __func__, (int) i, (int) status);
-                if (status == MTLCommandBufferStatusError) {
-                    GGML_LOG_ERROR("error: %s\n", [[cmd_buf error].localizedDescription UTF8String]);
-                }
+                ggml_metal_set_error(ctx, cmd_buf);
 
                 // release this and all remaining command buffers before returning
                 for (size_t j = i; j < ctx->cmd_bufs_ext.count; ++j) {
@@ -307,7 +325,6 @@ void ggml_metal_synchronize(ggml_metal_t ctx) {
                 }
                 [ctx->cmd_bufs_ext removeAllObjects];
 
-                atomic_store_explicit(&ctx->has_error, true, memory_order_relaxed);
                 return;
             }
 
@@ -461,6 +478,11 @@ bool ggml_metal_cpy_tensor_async(ggml_metal_t ctx_src, ggml_metal_t ctx_dst, con
 
 bool ggml_metal_has_error(ggml_metal_t ctx) {
     return atomic_load_explicit(&ctx->has_error, memory_order_relaxed);
+}
+
+bool ggml_metal_refused(ggml_metal_t ctx) {
+    return atomic_load_explicit(&ctx->has_error, memory_order_relaxed) &&
+           atomic_load_explicit(&ctx->refused, memory_order_relaxed);
 }
 
 enum ggml_status ggml_metal_graph_compute(ggml_metal_t ctx, struct ggml_cgraph * gf) {

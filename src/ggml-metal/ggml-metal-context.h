@@ -37,6 +37,7 @@ void ggml_metal_set_n_cb            (ggml_metal_t ctx, int n_cb);
 // state (ggml_metal_graph_compute then refuses every graph). Read by an
 // embedder instead of probing with a graph (erichchampion/cadenza-audio#405).
 bool ggml_metal_has_error           (ggml_metal_t ctx);
+bool ggml_metal_refused             (ggml_metal_t ctx);
 void ggml_metal_set_abort_callback  (ggml_metal_t ctx, ggml_abort_callback abort_callback, void * user_data);
 bool ggml_metal_supports_family     (ggml_metal_t ctx, int family);
 void ggml_metal_capture_next_compute(ggml_metal_t ctx);
