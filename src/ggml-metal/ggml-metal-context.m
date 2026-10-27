@@ -88,8 +88,10 @@ struct ggml_metal {
 };
 
 // cadenza: put ctx in its error state for command buffer `cmd_buf`, which did
-// not complete, noting whether the system refused it (#817). The NSError's
-// domain and code are logged with its text, so a device log says which.
+// not complete, noting whether the system refused it (#817). Called for every
+// failed buffer of a graph: they need not fail in order, nor all with the
+// refusal's code, so one refused is enough. The NSError's domain and code
+// are logged with its text, so a device log says which.
 static void ggml_metal_set_error(ggml_metal_t ctx, id<MTLCommandBuffer> cmd_buf) {
     NSError * error = [cmd_buf status] == MTLCommandBufferStatusError ? [cmd_buf error] : nil;
     if (error) {
@@ -103,10 +105,12 @@ static void ggml_metal_set_error(ggml_metal_t ctx, id<MTLCommandBuffer> cmd_buf)
     const bool refused = error &&
         (([error.domain isEqualToString:MTLCommandBufferErrorDomain] && error.code == MTLCommandBufferErrorNotPermitted) ||
          [error.localizedDescription containsString:@"BackgroundExecutionNotPermitted"]);
-    if (!atomic_load_explicit(&ctx->has_error, memory_order_relaxed)) {
-        atomic_store_explicit(&ctx->refused, refused, memory_order_relaxed);
+    // refused before has_error, both released: a reader that sees the error
+    // state with acquire sees whether it was refused (ggml_metal_refused).
+    if (refused) {
+        atomic_store_explicit(&ctx->refused, true, memory_order_release);
     }
-    atomic_store_explicit(&ctx->has_error, true, memory_order_relaxed);
+    atomic_store_explicit(&ctx->has_error, true, memory_order_release);
 }
 
 ggml_metal_t ggml_metal_init(ggml_metal_device_t dev) {
@@ -296,8 +300,11 @@ void ggml_metal_synchronize(ggml_metal_t ctx) {
     }
 
     // check status of all command buffers
+    // cadenza: every one, not only up to the first failed, so a refusal on a
+    // later buffer is not hidden by an earlier one failed otherwise (#817).
     {
         const int n_cb = ctx->n_cb;
+        bool failed = false;
 
         for (int cb_idx = 0; cb_idx <= n_cb; ++cb_idx) {
             id<MTLCommandBuffer> cmd_buf = ctx->cmd_bufs[cb_idx].obj;
@@ -309,8 +316,11 @@ void ggml_metal_synchronize(ggml_metal_t ctx) {
             if (status != MTLCommandBufferStatusCompleted) {
                 GGML_LOG_ERROR("%s: error: command buffer %d failed with status %d\n", __func__, cb_idx, (int) status);
                 ggml_metal_set_error(ctx, cmd_buf);
-                return;
+                failed = true;
             }
+        }
+        if (failed) {
+            return;
         }
     }
 
@@ -486,7 +496,7 @@ bool ggml_metal_has_error(ggml_metal_t ctx) {
 }
 
 bool ggml_metal_refused(ggml_metal_t ctx) {
-    return atomic_load_explicit(&ctx->has_error, memory_order_relaxed) &&
+    return atomic_load_explicit(&ctx->has_error, memory_order_acquire) &&
            atomic_load_explicit(&ctx->refused, memory_order_relaxed);
 }
 
