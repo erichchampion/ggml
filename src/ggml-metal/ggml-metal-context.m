@@ -96,8 +96,13 @@ static void ggml_metal_set_error(ggml_metal_t ctx, id<MTLCommandBuffer> cmd_buf)
         GGML_LOG_ERROR("error: %s (%s %ld)\n", [error.localizedDescription UTF8String],
                        [error.domain UTF8String], (long) error.code);
     }
-    const bool refused = error && [error.domain isEqualToString:MTLCommandBufferErrorDomain] &&
-                         error.code == MTLCommandBufferErrorNotPermitted;
+    // By Metal's code; and by IOGPU's own name for it, which the error's text
+    // carries -- "Insufficient Permission (to submit GPU work from background)
+    // (00000006:kIOGPUCommandBufferCallbackErrorBackgroundExecutionNotPermitted)"
+    // on an iPad, #814 -- in case Metal files it under another code.
+    const bool refused = error &&
+        (([error.domain isEqualToString:MTLCommandBufferErrorDomain] && error.code == MTLCommandBufferErrorNotPermitted) ||
+         [error.localizedDescription containsString:@"BackgroundExecutionNotPermitted"]);
     if (!atomic_load_explicit(&ctx->has_error, memory_order_relaxed)) {
         atomic_store_explicit(&ctx->refused, refused, memory_order_relaxed);
     }
