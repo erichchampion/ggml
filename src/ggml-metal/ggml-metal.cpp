@@ -992,7 +992,14 @@ ggml_backend_reg_t ggml_backend_metal_reg(void) {
         if (!initialized) {
             // workaround macOS limitation (kIOGPUCommandBufferCallbackErrorImpactingInteractivity) until proper fix becomes possible
             // ref: https://github.com/ggml-org/llama.cpp/issues/20141#issuecomment-4272947703
-            setenv("AGX_RELAX_CDM_CTXSTORE_TIMEOUT", "1", true);
+            // cadenza: only if the host has not set it already. setenv writes
+            // the environment on whichever thread first loads this registry,
+            // racing any other thread that walks environ; a host that sets
+            // it once before its threads start leaves nothing to write here
+            // (erichchampion/cadenza-audio#803).
+            if (!getenv("AGX_RELAX_CDM_CTXSTORE_TIMEOUT")) {
+                setenv("AGX_RELAX_CDM_CTXSTORE_TIMEOUT", "1", true);
+            }
 
             static ggml_backend_metal_reg_ptr reg_ctx(ggml_backend_metal_reg_init());
 
