@@ -105,6 +105,11 @@ static void ggml_metal_set_error(ggml_metal_t ctx, id<MTLCommandBuffer> cmd_buf)
     // (erichchampion/cadenza-audio#845).
     const bool refused = error &&
         [error.domain isEqualToString:MTLCommandBufferErrorDomain] && error.code == MTLCommandBufferErrorNotPermitted;
+    // An iOS release or a device that files the refusal under another code
+    // is said, so a device log shows it, though it is taken for a fault.
+    if (error && !refused && [error.localizedDescription containsString:@"BackgroundExecutionNotPermitted"]) {
+        GGML_LOG_WARN("%s: the error names a background refusal but is not MTLCommandBufferErrorNotPermitted; taken for a fault\n", __func__);
+    }
     // refused before has_error, both released: a reader that sees the error
     // state with acquire sees whether it was refused (ggml_metal_refused).
     if (refused) {
