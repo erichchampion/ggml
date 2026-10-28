@@ -98,13 +98,13 @@ static void ggml_metal_set_error(ggml_metal_t ctx, id<MTLCommandBuffer> cmd_buf)
         GGML_LOG_ERROR("error: %s (%s %ld)\n", [error.localizedDescription UTF8String],
                        [error.domain UTF8String], (long) error.code);
     }
-    // By Metal's code; and by IOGPU's own name for it, which the error's text
-    // carries -- "Insufficient Permission (to submit GPU work from background)
-    // (00000006:kIOGPUCommandBufferCallbackErrorBackgroundExecutionNotPermitted)"
-    // on an iPad, #814 -- in case Metal files it under another code.
+    // By Metal's code alone, not the error's text, which can be localized or
+    // reworded: an iPad on iOS 27 reports IOGPU's
+    // kIOGPUCommandBufferCallbackErrorBackgroundExecutionNotPermitted as
+    // (MTLCommandBufferErrorDomain 7), MTLCommandBufferErrorNotPermitted
+    // (erichchampion/cadenza-audio#845).
     const bool refused = error &&
-        (([error.domain isEqualToString:MTLCommandBufferErrorDomain] && error.code == MTLCommandBufferErrorNotPermitted) ||
-         [error.localizedDescription containsString:@"BackgroundExecutionNotPermitted"]);
+        [error.domain isEqualToString:MTLCommandBufferErrorDomain] && error.code == MTLCommandBufferErrorNotPermitted;
     // refused before has_error, both released: a reader that sees the error
     // state with acquire sees whether it was refused (ggml_metal_refused).
     if (refused) {
