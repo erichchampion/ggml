@@ -38,6 +38,12 @@ void ggml_metal_set_n_cb            (ggml_metal_t ctx, int n_cb);
 // embedder instead of probing with a graph (erichchampion/cadenza-audio#405).
 bool ggml_metal_has_error           (ggml_metal_t ctx);
 bool ggml_metal_refused             (ggml_metal_t ctx);
+
+// cadenza: put ctx in its error state as a command buffer failed with an
+// error of `domain` and `code` would -- logged, and refused by the same rule --
+// for a test that cannot make Metal fail or refuse one (cadenza-audio #849).
+// A NULL or unreadable domain is a failure with no error to read.
+void ggml_metal_fail_for_test       (ggml_metal_t ctx, const char * domain, long code);
 void ggml_metal_set_abort_callback  (ggml_metal_t ctx, ggml_abort_callback abort_callback, void * user_data);
 bool ggml_metal_supports_family     (ggml_metal_t ctx, int family);
 void ggml_metal_capture_next_compute(ggml_metal_t ctx);

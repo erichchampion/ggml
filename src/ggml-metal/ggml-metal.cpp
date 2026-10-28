@@ -594,6 +594,12 @@ static bool ggml_backend_metal_refused(ggml_backend_t backend) {
     return ggml_metal_refused((ggml_metal_t)backend->context);
 }
 
+static void ggml_backend_metal_fail_for_test(ggml_backend_t backend, const char * domain, long code) {
+    GGML_ASSERT(ggml_backend_is_metal(backend));
+
+    ggml_metal_fail_for_test((ggml_metal_t)backend->context, domain, code);
+}
+
 static ggml_backend_i ggml_backend_metal_i = {
     /* .get_name                = */ ggml_backend_metal_name,
     /* .free                    = */ ggml_backend_metal_free,
@@ -928,6 +934,12 @@ static void * ggml_backend_metal_get_proc_address(ggml_backend_reg_t reg, const 
     // -- rather than a fault (cadenza-audio #817). bool (*)(ggml_backend_t).
     if (strcmp(name, "ggml_backend_metal_refused") == 0) {
         return (void *)ggml_backend_metal_refused;
+    }
+    // cadenza: a backend put in its error state as a command buffer failed
+    // with that error would, for a test (cadenza-audio #849).
+    // void (*)(ggml_backend_t, const char * domain, long code).
+    if (strcmp(name, "ggml_backend_metal_fail_for_test") == 0) {
+        return (void *)ggml_backend_metal_fail_for_test;
     }
 
     return NULL;

@@ -87,27 +87,58 @@ struct ggml_metal {
     _Atomic bool refused;
 };
 
-// cadenza: put ctx in its error state for command buffer `cmd_buf`, which did
-// not complete, noting whether the system refused it (#817). Called for every
-// failed buffer of a graph: they need not fail in order, nor all with the
-// refusal's code, so one refused is enough. The NSError's domain and code
-// are logged with its text, so a device log says which.
-static void ggml_metal_set_error(ggml_metal_t ctx, id<MTLCommandBuffer> cmd_buf) {
-    NSError * error = [cmd_buf status] == MTLCommandBufferStatusError ? [cmd_buf error] : nil;
-    if (error) {
-        GGML_LOG_ERROR("error: %s (%s %ld)\n", [error.localizedDescription UTF8String],
-                       [error.domain UTF8String], (long) error.code);
+// cadenza: whether an error of `domain` and `code` is the system refusing the
+// GPU. By Metal's code alone, not the error's text, which can be localized or
+// reworded: an iPad on iOS 27 reports IOGPU's
+// kIOGPUCommandBufferCallbackErrorBackgroundExecutionNotPermitted as
+// (MTLCommandBufferErrorDomain 7), MTLCommandBufferErrorNotPermitted
+// (erichchampion/cadenza-audio#845). The underlying errors are not matched:
+// they are logged (below) until a device shows what they are (#849).
+static bool ggml_metal_is_refusal(NSString * domain, NSInteger code) {
+    return [domain isEqualToString:MTLCommandBufferErrorDomain] && code == MTLCommandBufferErrorNotPermitted;
+}
+
+// cadenza: put ctx in its error state for `error` -- a command buffer that did
+// not complete, or none to read -- noting whether the system refused it
+// (#817). Called for every failed buffer of a graph: they need not fail in
+// order, nor all with the refusal's code, so one refused is enough. The
+// error's domain, code and text are logged, and each underlying error's
+// after it -- NSUnderlyingErrorKey's chain and NSMultipleUnderlyingErrorsKey's
+// -- so a device log says what IOGPU files a refusal under (#849).
+static void ggml_metal_record_error(ggml_metal_t ctx, NSError * error) {
+    bool named = false;
+    // Drained here: this runs on the engine's long-lived worker, which has no
+    // pool of its own, and the file is not ARC.
+    @autoreleasepool {
+        if (error) {
+            NSMutableString * line = [NSMutableString stringWithFormat:@"error: %@ (%@ %ld)",
+                                      error.localizedDescription, error.domain, (long) error.code];
+            named = [error.localizedDescription containsString:@"BackgroundExecutionNotPermitted"];
+            // Breadth first, each error once, at most 16: what Metal wraps and
+            // what that wraps. underlyingErrors merges NSUnderlyingErrorKey's and
+            // NSMultipleUnderlyingErrorsKey's, a value provider's too.
+            NSMutableArray<NSError *> * pending = [NSMutableArray arrayWithObject:error];
+            NSMutableSet<NSError *> * seen = [NSMutableSet setWithObject:error];
+            while (pending.count > 0 && seen.count < 16) {
+                NSError * e = pending.firstObject;
+                [pending removeObjectAtIndex:0];
+                for (NSError * u in e.underlyingErrors) {
+                    if ([seen containsObject:u] || seen.count >= 16) {
+                        continue;
+                    }
+                    [seen addObject:u];
+                    [line appendFormat:@"; underlying %@ %ld: %@", u.domain, (long) u.code, u.localizedDescription];
+                    named = named || [u.localizedDescription containsString:@"BackgroundExecutionNotPermitted"];
+                    [pending addObject:u];
+                }
+            }
+            GGML_LOG_ERROR("%s\n", [line UTF8String]);
+        }
     }
-    // By Metal's code alone, not the error's text, which can be localized or
-    // reworded: an iPad on iOS 27 reports IOGPU's
-    // kIOGPUCommandBufferCallbackErrorBackgroundExecutionNotPermitted as
-    // (MTLCommandBufferErrorDomain 7), MTLCommandBufferErrorNotPermitted
-    // (erichchampion/cadenza-audio#845).
-    const bool refused = error &&
-        [error.domain isEqualToString:MTLCommandBufferErrorDomain] && error.code == MTLCommandBufferErrorNotPermitted;
+    const bool refused = error && ggml_metal_is_refusal(error.domain, error.code);
     // An iOS release or a device that files the refusal under another code
     // is said, so a device log shows it, though it is taken for a fault.
-    if (error && !refused && [error.localizedDescription containsString:@"BackgroundExecutionNotPermitted"]) {
+    if (!refused && named) {
         GGML_LOG_WARN("%s: the error names a background refusal but is not MTLCommandBufferErrorNotPermitted; taken for a fault\n", __func__);
     }
     // refused before has_error, both released: a reader that sees the error
@@ -116,6 +147,17 @@ static void ggml_metal_set_error(ggml_metal_t ctx, id<MTLCommandBuffer> cmd_buf)
         atomic_store_explicit(&ctx->refused, true, memory_order_release);
     }
     atomic_store_explicit(&ctx->has_error, true, memory_order_release);
+}
+
+static void ggml_metal_set_error(ggml_metal_t ctx, id<MTLCommandBuffer> cmd_buf) {
+    ggml_metal_record_error(ctx, [cmd_buf status] == MTLCommandBufferStatusError ? [cmd_buf error] : nil);
+}
+
+void ggml_metal_fail_for_test(ggml_metal_t ctx, const char * domain, long code) {
+    @autoreleasepool {
+        NSString * d = domain ? [NSString stringWithUTF8String:domain] : nil;
+        ggml_metal_record_error(ctx, d ? [NSError errorWithDomain:d code:code userInfo:nil] : nil);
+    }
 }
 
 ggml_metal_t ggml_metal_init(ggml_metal_device_t dev) {
