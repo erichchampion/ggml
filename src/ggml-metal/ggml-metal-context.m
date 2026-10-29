@@ -160,6 +160,62 @@ void ggml_metal_fail_for_test(ggml_metal_t ctx, const char * domain, long code) 
     }
 }
 
+// cadenza: an error of `domain`, `code` and `text` (NULL: none) with `more`
+// merged into its userInfo, autoreleased; nil for an unreadable domain.
+static NSError * ggml_metal_test_error_make(const char * domain, long code, const char * text, NSDictionary * more) {
+    NSString * d = domain ? [NSString stringWithUTF8String:domain] : nil;
+    if (!d) {
+        return nil;
+    }
+    NSMutableDictionary * info = [NSMutableDictionary dictionaryWithDictionary:more ? more : @{}];
+    NSString * t = text ? [NSString stringWithUTF8String:text] : nil;
+    if (t) {
+        info[NSLocalizedDescriptionKey] = t;
+    }
+    return [NSError errorWithDomain:d code:code userInfo:info];
+}
+
+void ggml_metal_fail_for_test_chain(ggml_metal_t ctx, const char * domain, long code, const char * text,
+                                    const struct ggml_metal_test_error * underlying, int n, int shape) {
+    @autoreleasepool {
+        // Built from the innermost out for a chain; the cycle's last wraps
+        // the error itself through a mutable array, filled in once it exists
+        // (the error keeps the array, not a copy of it). Never freed: a test.
+        NSMutableArray * loop = [NSMutableArray array];
+        NSError * inner = nil;
+        NSMutableArray<NSError *> * wide = [NSMutableArray array];
+        for (int i = n - 1; i >= 0; i--) {
+            const struct ggml_metal_test_error * u = &underlying[i];
+            NSDictionary * more = nil;
+            if (shape == 1) {
+                more = nil;
+            } else if (inner) {
+                more = @{ NSUnderlyingErrorKey: inner };
+            } else if (shape == 2) {
+                more = @{ NSMultipleUnderlyingErrorsKey: loop };
+            }
+            NSError * e = ggml_metal_test_error_make(u->domain, u->code, u->text, more);
+            if (!e) {
+                continue;
+            }
+            if (shape == 1) {
+                [wide insertObject:e atIndex:0];
+            } else {
+                inner = e;
+            }
+        }
+        NSDictionary * more = shape == 1 ? @{ NSMultipleUnderlyingErrorsKey: wide }
+                            : inner     ? @{ NSUnderlyingErrorKey: inner }
+                                        : nil;
+        NSError * error = ggml_metal_test_error_make(domain, code, text, more);
+        if (error && shape == 2) {
+            [loop addObject:error];
+            [error retain];  // the cycle, kept whole for the record below and after it
+        }
+        ggml_metal_record_error(ctx, error);
+    }
+}
+
 ggml_metal_t ggml_metal_init(ggml_metal_device_t dev) {
     GGML_LOG_INFO("%s: allocating\n", __func__);
 

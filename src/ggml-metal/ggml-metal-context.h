@@ -44,6 +44,20 @@ bool ggml_metal_refused             (ggml_metal_t ctx);
 // for a test that cannot make Metal fail or refuse one (cadenza-audio #849).
 // A NULL or unreadable domain is a failure with no error to read.
 void ggml_metal_fail_for_test       (ggml_metal_t ctx, const char * domain, long code);
+// cadenza: one underlying error of ggml_metal_fail_for_test_chain's.
+struct ggml_metal_test_error {
+    const char * domain;
+    long         code;
+    const char * text; // its localized description; NULL: Foundation's own
+};
+// cadenza: the same, the error's text `text` (NULL: Foundation's own), wrapping
+// the `n` errors of `underlying` as `shape` says -- 0, a chain, each the one
+// before's NSUnderlyingErrorKey; 1, wide, all the error's
+// NSMultipleUnderlyingErrorsKey; 2, a cycle, a chain whose last wraps the
+// error again -- so a test can reach the underlying-error walk (cadenza-audio
+// #857).
+void ggml_metal_fail_for_test_chain (ggml_metal_t ctx, const char * domain, long code, const char * text,
+                                     const struct ggml_metal_test_error * underlying, int n, int shape);
 void ggml_metal_set_abort_callback  (ggml_metal_t ctx, ggml_abort_callback abort_callback, void * user_data);
 bool ggml_metal_supports_family     (ggml_metal_t ctx, int family);
 void ggml_metal_capture_next_compute(ggml_metal_t ctx);
