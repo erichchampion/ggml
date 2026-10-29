@@ -55,8 +55,9 @@ struct ggml_metal_test_error {
 // before's NSUnderlyingErrorKey; 1, wide, all the error's
 // NSMultipleUnderlyingErrorsKey; 2, a cycle, a chain whose last wraps the
 // error again -- so a test can reach the underlying-error walk (cadenza-audio
-// #857).
-void ggml_metal_fail_for_test_chain (ggml_metal_t ctx, const char * domain, long code, const char * text,
+// #857). Whether a cycle was closed. No `underlying` is none; another shape a
+// chain.
+bool ggml_metal_fail_for_test_chain (ggml_metal_t ctx, const char * domain, long code, const char * text,
                                      const struct ggml_metal_test_error * underlying, int n, int shape);
 void ggml_metal_set_abort_callback  (ggml_metal_t ctx, ggml_abort_callback abort_callback, void * user_data);
 bool ggml_metal_supports_family     (ggml_metal_t ctx, int family);

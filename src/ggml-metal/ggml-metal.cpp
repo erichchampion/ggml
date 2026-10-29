@@ -600,12 +600,12 @@ static void ggml_backend_metal_fail_for_test(ggml_backend_t backend, const char 
     ggml_metal_fail_for_test((ggml_metal_t)backend->context, domain, code);
 }
 
-static void ggml_backend_metal_fail_for_test_chain(ggml_backend_t backend, const char * domain, long code,
+static bool ggml_backend_metal_fail_for_test_chain(ggml_backend_t backend, const char * domain, long code,
                                                   const char * text, const struct ggml_metal_test_error * underlying,
                                                   int n, int shape) {
     GGML_ASSERT(ggml_backend_is_metal(backend));
 
-    ggml_metal_fail_for_test_chain((ggml_metal_t)backend->context, domain, code, text, underlying, n, shape);
+    return ggml_metal_fail_for_test_chain((ggml_metal_t)backend->context, domain, code, text, underlying, n, shape);
 }
 
 static ggml_backend_i ggml_backend_metal_i = {
@@ -950,9 +950,10 @@ static void * ggml_backend_metal_get_proc_address(ggml_backend_reg_t reg, const 
         return (void *)ggml_backend_metal_fail_for_test;
     }
     // cadenza: the same with underlying errors, for the walk that logs them
-    // (cadenza-audio #857). void (*)(ggml_backend_t, const char * domain,
+    // (cadenza-audio #857). bool (*)(ggml_backend_t, const char * domain,
     // long code, const char * text, const struct ggml_metal_test_error *
-    // underlying, int n, int shape) -- see ggml-metal-context.h.
+    // underlying, int n, int shape), whether a cycle closed -- see
+    // ggml-metal-context.h.
     if (strcmp(name, "ggml_backend_metal_fail_for_test_chain") == 0) {
         return (void *)ggml_backend_metal_fail_for_test_chain;
     }

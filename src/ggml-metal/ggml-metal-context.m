@@ -116,9 +116,13 @@ static void ggml_metal_record_error(ggml_metal_t ctx, NSError * error) {
             named = [error.localizedDescription containsString:@"BackgroundExecutionNotPermitted"];
             // Breadth first, each error once, at most 16: what Metal wraps and
             // what that wraps. underlyingErrors merges NSUnderlyingErrorKey's and
-            // NSMultipleUnderlyingErrorsKey's, a value provider's too.
+            // NSMultipleUnderlyingErrorsKey's, a value provider's too. Once by
+            // identity, not isEqual: two errors alike are both logged, and
+            // telling a cyclic pair apart never compares their userInfo (#857).
             NSMutableArray<NSError *> * pending = [NSMutableArray arrayWithObject:error];
-            NSMutableSet<NSError *> * seen = [NSMutableSet setWithObject:error];
+            NSHashTable<NSError *> * seen =
+                [NSHashTable hashTableWithOptions:NSPointerFunctionsStrongMemory | NSPointerFunctionsObjectPointerPersonality];
+            [seen addObject:error];
             while (pending.count > 0 && seen.count < 16) {
                 NSError * e = pending.firstObject;
                 [pending removeObjectAtIndex:0];
@@ -175,12 +179,20 @@ static NSError * ggml_metal_test_error_make(const char * domain, long code, cons
     return [NSError errorWithDomain:d code:code userInfo:info];
 }
 
-void ggml_metal_fail_for_test_chain(ggml_metal_t ctx, const char * domain, long code, const char * text,
+bool ggml_metal_fail_for_test_chain(ggml_metal_t ctx, const char * domain, long code, const char * text,
                                     const struct ggml_metal_test_error * underlying, int n, int shape) {
+    if (!underlying || n < 0) {
+        n = 0;
+    }
+    if (shape < 0 || shape > 2) {
+        shape = 0;
+    }
+    bool closed = false;
     @autoreleasepool {
         // Built from the innermost out for a chain; the cycle's last wraps
         // the error itself through a mutable array, filled in once it exists
-        // (the error keeps the array, not a copy of it). Never freed: a test.
+        // (the error keeps the array, not a copy of it). The cycle keeps
+        // itself: never freed, in a test.
         NSMutableArray * loop = [NSMutableArray array];
         NSError * inner = nil;
         NSMutableArray<NSError *> * wide = [NSMutableArray array];
@@ -208,12 +220,14 @@ void ggml_metal_fail_for_test_chain(ggml_metal_t ctx, const char * domain, long 
                             : inner     ? @{ NSUnderlyingErrorKey: inner }
                                         : nil;
         NSError * error = ggml_metal_test_error_make(domain, code, text, more);
-        if (error && shape == 2) {
+        // Closed only through an innermost error that holds the array.
+        if (error && shape == 2 && inner) {
             [loop addObject:error];
-            [error retain];  // the cycle, kept whole for the record below and after it
+            closed = true;
         }
         ggml_metal_record_error(ctx, error);
     }
+    return closed;
 }
 
 ggml_metal_t ggml_metal_init(ggml_metal_device_t dev) {
