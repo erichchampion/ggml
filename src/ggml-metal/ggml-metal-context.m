@@ -191,21 +191,19 @@ bool ggml_metal_fail_for_test_chain(ggml_metal_t ctx, const char * domain, long 
     @autoreleasepool {
         // Built from the innermost out for a chain; the cycle's last wraps
         // the error itself through a mutable array, filled in once it exists
-        // (the error keeps the array, not a copy of it). The cycle keeps
-        // itself: never freed, in a test.
+        // (the error keeps the array, not a copy of it), and broken again
+        // once recorded, so the graph is freed -- this binary is a leak test.
         NSMutableArray * loop = [NSMutableArray array];
         NSError * inner = nil;
         NSMutableArray<NSError *> * wide = [NSMutableArray array];
         for (int i = n - 1; i >= 0; i--) {
             const struct ggml_metal_test_error * u = &underlying[i];
-            NSDictionary * more = nil;
-            if (shape == 1) {
-                more = nil;
-            } else if (inner) {
-                more = @{ NSUnderlyingErrorKey: inner };
-            } else if (shape == 2) {
-                more = @{ NSMultipleUnderlyingErrorsKey: loop };
-            }
+            // Wide: none of their own. A chain: the one inside. A cycle's
+            // innermost: the array that wraps the error again.
+            NSDictionary * more = shape == 1 ? nil
+                                : inner      ? @{ NSUnderlyingErrorKey: inner }
+                                : shape == 2 ? @{ NSMultipleUnderlyingErrorsKey: loop }
+                                             : nil;
             NSError * e = ggml_metal_test_error_make(u->domain, u->code, u->text, more);
             if (!e) {
                 continue;
@@ -226,6 +224,7 @@ bool ggml_metal_fail_for_test_chain(ggml_metal_t ctx, const char * domain, long 
             closed = true;
         }
         ggml_metal_record_error(ctx, error);
+        [loop removeAllObjects];
     }
     return closed;
 }
